@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drone Fleet Browser Map</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossorigin="">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+            crossorigin=""></script>
+    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+        }
+        body {
+            display: grid;
+            grid-template-columns: minmax(340px, 420px) minmax(0, 1fr);
+            font-family: "Segoe UI", Arial, sans-serif;
+            background: #091423;
+            color: #f3fbff;
+        }
+        #sidebar {
+            overflow-y: auto;
+            padding: 18px;
+            background: linear-gradient(180deg, #08111f, #0c1a2e);
+            border-right: 1px solid rgba(120, 225, 255, 0.15);
+        }
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+        h1 {
+            margin: 0 0 10px;
+            font-size: 22px;
+        }
+        .copy {
+            margin: 0;
+            color: #9ab3c3;
+            line-height: 1.5;
+            font-size: 13px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 16px;
+        }
+        .stat, .route-card {
+            padding: 12px 14px;
+            border-radius: 16px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(120, 225, 255, 0.14);
+        }
+        .tools {
+            margin-top: 16px;
+            padding: 12px 14px;
+            border-radius: 16px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(120, 225, 255, 0.14);
+        }
+        .tools h2 {
+            margin: 0 0 8px;
+            font-size: 15px;
+        }
+        .tools p {
+            margin: 0 0 10px;
+            color: #9ab3c3;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .tool-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .tool-buttons button {
+            padding: 8px 12px;
+            border: 1px solid rgba(120, 225, 255, 0.18);
+            border-radius: 12px;
+            background: rgba(255,255,255,0.05);
+            color: #f3fbff;
+            cursor: pointer;
+            font: inherit;
+        }
+        .tool-buttons button:hover {
+            background: rgba(255,255,255,0.10);
+        }
+        .stat-label {
+            display: block;
+            color: #9ab3c3;
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+        .stat-value {
+            display: block;
+            margin-top: 4px;
+            font-size: 18px;
+            font-weight: 700;
+        }
+        #routesList {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 16px;
+        }
+        .route-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 0 0 10px;
+            font-size: 16px;
+            font-weight: 700;
+        }
+        .route-chip {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .route-meta {
+            color: #9ab3c3;
+            font-size: 12px;
+            margin-bottom: 10px;
+        }
+        .edge-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .edge-row {
+            padding: 8px 10px;
+            border-radius: 12px;
+            background: rgba(0,0,0,0.18);
+            line-height: 1.4;
+            font-size: 12px;
+        }
+        .leaflet-control-attribution {
+            background: rgba(7, 17, 31, 0.8) !important;
+            color: #f3fbff !important;
+        }
+        .leaflet-popup-content-wrapper,
+        .leaflet-popup-tip {
+            background: rgba(7, 17, 31, 0.92);
+            color: #f3fbff;
+        }
+        .vertex-label {
+            background: rgba(7, 17, 31, 0.9);
+            border: 1px solid rgba(255,255,255,0.10);
+            border-radius: 999px;
+            color: #f3fbff;
+            padding: 4px 8px;
+            font-size: 11px;
+            font-weight: 700;
+            white-space: nowrap;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.22);
+        }
+        .route-label {
+            padding: 3px 7px;
+            border-radius: 999px;
+            background: rgba(7, 17, 31, 0.88);
+            border: 1px solid rgba(255,255,255,0.08);
+            color: #f3fbff;
+            font-size: 10px;
+            font-weight: 700;
+            white-space: nowrap;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+        }
+        .route-distance-icon {
+            background: transparent;
+            border: none;
+        }
+        @media (max-width: 980px) {
+            body {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 60vh;
+            }
+            #map {
+                height: 60vh;
+            }
+        }
+    </style>
+</head>
+<body>
+<aside id="sidebar">
+    <h1>Optimal Fleet Routes</h1>
+    <p class="copy">Full browser map with no-fly-zone-aware optimal paths. The sidebar keeps the full fleet path and edge distances readable while the map stays uncluttered.</p>
+    <div class="stats">
+        <div class="stat"><span class="stat-label">Locations</span><span class="stat-value" id="locCount">0</span></div>
+        <div class="stat"><span class="stat-label">Routes</span><span class="stat-value" id="routeCount">0</span></div>
+        <div class="stat"><span class="stat-label">No-Fly Zones</span><span class="stat-value" id="nfzCount">0</span></div>
+        <div class="stat"><span class="stat-label">Critical Orders</span><span class="stat-value" id="criticalCount">0</span></div>
+    </div>
+    <section class="tools">
+        <h2>Browser No-Fly Tools</h2>
+        <p>Use the draw control on the map to add extra rectangle zones or line barriers. These browser-added zones are kept as an extra visual layer alongside the app's current no-fly-zone setup.</p>
+        <div class="tool-buttons">
+            <button type="button" id="clearBrowserZones">Clear Browser Zones</button>
+        </div>
+    </section>
+    <div id="routesList"></div>
+</aside>
+<div id="map"></div>
+
+<script>
+    const state = __STATE_JSON__;
+    const palette = ["#00c2ff", "#39d98a", "#ffb020", "#ff5d9e", "#8b7dff", "#fb7f3f"];
+
+    const map = L.map("map", {
+        zoomControl: true,
+        attributionControl: true,
+        fadeAnimation: false,
+        zoomAnimation: true
+    }).setView([40.7128, -74.0060], 12);
+
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+        subdomains: "abcd",
+        maxZoom: 20,
+        attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
+    }).addTo(map);
+
+    const bounds = L.latLngBounds([]);
+    const locCount = document.getElementById("locCount");
+    const routeCount = document.getElementById("routeCount");
+    const nfzCount = document.getElementById("nfzCount");
+    const criticalCount = document.getElementById("criticalCount");
+    const routesList = document.getElementById("routesList");
+    const clearBrowserZonesButton = document.getElementById("clearBrowserZones");
+    const bridgeUrl = state.bridgeUrl;
+    const browserZoneLayer = new L.FeatureGroup().addTo(map);
+
+    locCount.textContent = String((state.locations || []).length);
+    routeCount.textContent = String((state.routes || []).length);
+    nfzCount.textContent = String((state.noFlyZones || []).length);
+    criticalCount.textContent = String((state.locations || []).filter(location => location.priority === "Critical").length);
+
+    function addEdgeLabel(start, end, text) {
+        const lat = (start[0] + end[0]) / 2;
+        const lng = (start[1] + end[1]) / 2;
+        const width = Math.max(64, Math.min(120, text.length * 8 + 18));
+        const icon = L.divIcon({
+            className: "route-distance-icon",
+            html: `<div class="route-label">${text}</div>`,
+            iconSize: [width, 28],
+            iconAnchor: [width / 2, 14]
+        });
+        L.marker([lat, lng], { icon, interactive: false }).addTo(map);
+    }
+
+    function renderRoutePanel() {
+        const routes = state.routes || [];
+        if (!routes.length) {
+            routesList.innerHTML = "<div class='route-card'>No route has been optimized yet.</div>";
+            return;
+        }
+
+        routesList.innerHTML = routes.map((route, routeIndex) => {
+            const color = palette[routeIndex % palette.length];
+            const edges = (route.edgeDistances || []).map((distance, i) => {
+                const from = route.stops?.[i] || ("Stop " + (i + 1));
+                const to = route.stops?.[i + 1] || ("Stop " + (i + 2));
+                const priority = route.stopPriorities?.[i + 1] || "";
+                return `<div class="edge-row">${i + 1}. ${from} -> ${to}${priority ? ` (${priority})` : ""}<br>${distance}</div>`;
+            }).join("");
+
+            return `
+                <section class="route-card">
+                    <div class="route-title">
+                        <span class="route-chip" style="background:${color}"></span>
+                        Drone ${route.droneId + 1}
+                    </div>
+                    <div class="route-meta">Optimal path distance: ${route.distance.toFixed(2)} km</div>
+                    <div class="edge-list">${edges}</div>
+                </section>
+            `;
+        }).join("");
+    }
+
+    function addMarkers() {
+        (state.locations || []).forEach(location => {
+            const isBase = location.id === 0;
+            const marker = L.circleMarker([location.lat, location.lng], {
+                radius: isBase ? 9 : 7,
+                color: "#ffffff",
+                weight: 2,
+                fillColor: isBase ? "#ff6b6b" : "#4fd1ff",
+                fillOpacity: 0.95
+            }).addTo(map);
+
+            const popup = isBase
+                ? `<strong>${location.name}</strong><br>Depot`
+                : `<strong>${location.name}</strong><br>${location.priority} Priority<br>Ready ${Math.round(location.readyTime)} min | Due ${Math.round(location.dueTime)} min`;
+
+            marker.bindPopup(popup);
+            marker.bindTooltip(location.name, {
+                permanent: true,
+                direction: "top",
+                offset: [0, -10],
+                className: "vertex-label"
+            });
+            bounds.extend([location.lat, location.lng]);
+        });
+    }
+
+    function addNoFlyZones() {
+        (state.noFlyZones || []).forEach(zone => {
+            L.rectangle([[zone.minLat, zone.minLng], [zone.maxLat, zone.maxLng]], {
+                color: "#ff6b6b",
+                weight: 2,
+                fillColor: "#ff6b6b",
+                fillOpacity: 0.18
+            }).addTo(map);
+            bounds.extend([zone.minLat, zone.minLng]);
+            bounds.extend([zone.maxLat, zone.maxLng]);
+        });
+    }
+
+    function updateNoFlyCount() {
+        nfzCount.textContent = String((state.noFlyZones || []).length + browserZoneLayer.getLayers().length);
+    }
+
+    function styleBrowserZone(layer) {
+        if (layer instanceof L.Rectangle) {
+            layer.setStyle({
+                color: "#ff6b6b",
+                weight: 2,
+                fillColor: "#ff6b6b",
+                fillOpacity: 0.14,
+                dashArray: "6 6"
+            });
+        } else if (layer instanceof L.Polyline) {
+            layer.setStyle({
+                color: "#ff8a65",
+                weight: 4,
+                opacity: 0.95,
+                dashArray: "10 8"
+            });
+        }
+    }
+
+    function serializeLayer(layer) {
+        const geoJson = layer.toGeoJSON();
+        return geoJson;
+    }
+
+    async function saveBrowserZones() {
+        const serialized = browserZoneLayer.getLayers().map(serializeLayer);
+        await fetch(bridgeUrl + "/api/browser-zones", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(serialized)
+        });
+        updateNoFlyCount();
+    }
+
+    async function loadBrowserZones() {
+        browserZoneLayer.clearLayers();
+
+        try {
+            const response = await fetch(bridgeUrl + "/api/browser-zones");
+            if (!response.ok) {
+                throw new Error("Failed to load browser zones.");
+            }
+            const items = await response.json();
+            items.forEach(item => {
+                const layer = L.geoJSON(item).getLayers()[0];
+                if (!layer) {
+                    return;
+                }
+                styleBrowserZone(layer);
+                browserZoneLayer.addLayer(layer);
+                if (layer.getBounds) {
+                    bounds.extend(layer.getBounds());
+                } else if (layer.getLatLngs) {
+                    const latLngs = layer.getLatLngs().flat(Infinity);
+                    latLngs.forEach(latLng => bounds.extend(latLng));
+                }
+            });
+        } catch (error) {
+            console.warn("Failed to load browser zones", error);
+        }
+
+        updateNoFlyCount();
+    }
+
+    function getRectangleZones() {
+        const zones = (state.noFlyZones || []).map(zone => ({
+            minLat: zone.minLat,
+            minLng: zone.minLng,
+            maxLat: zone.maxLat,
+            maxLng: zone.maxLng
+        }));
+
+        browserZoneLayer.getLayers().forEach(layer => {
+            if (layer instanceof L.Rectangle) {
+                const rectBounds = layer.getBounds();
+                zones.push({
+                    minLat: rectBounds.getSouth(),
+                    minLng: rectBounds.getWest(),
+                    maxLat: rectBounds.getNorth(),
+                    maxLng: rectBounds.getEast()
+                });
+            }
+        });
+
+        return zones;
+    }
+
+    function pointInZone(point, zone) {
+        return point[0] >= zone.minLat && point[0] <= zone.maxLat
+            && point[1] >= zone.minLng && point[1] <= zone.maxLng;
+    }
+
+    function addRoutes() {
+        const routes = state.routes || [];
+        for (let routeIndex = 0; routeIndex < routes.length; routeIndex++) {
+            const route = routes[routeIndex];
+            const color = palette[routeIndex % palette.length];
+            const points = route.path || [];
+            const edgePaths = route.edgePaths || [];
+            if (points.length < 2) {
+                continue;
+            }
+
+            let fullPath = [];
+            for (let i = 0; i < edgePaths.length; i++) {
+                const segment = edgePaths[i] || [points[i], points[i + 1]];
+                const normalized = segment.map(point => [point[0], point[1]]);
+                if (fullPath.length > 0 && normalized.length > 0) {
+                    normalized.shift();
+                }
+                fullPath.push(...normalized);
+            }
+
+            if (!fullPath.length) {
+                fullPath = points;
+            }
+
+            L.polyline(fullPath, {
+                color,
+                weight: 6,
+                opacity: 0.92,
+                lineCap: "round",
+                lineJoin: "round"
+            }).addTo(map);
+
+            for (let i = 0; i < points.length - 1; i++) {
+                if (i % 2 === 0) {
+                    addEdgeLabel(points[i], points[i + 1], route.edgeDistances[i] || "");
+                }
+            }
+
+            fullPath.forEach(point => bounds.extend(point));
+        }
+    }
+
+    async function init() {
+        const drawControl = new L.Control.Draw({
+            position: "topright",
+            edit: {
+                featureGroup: browserZoneLayer,
+                remove: true
+            },
+            draw: {
+                polygon: false,
+                circle: false,
+                circlemarker: false,
+                marker: false,
+                polyline: {
+                    shapeOptions: {
+                        color: "#ff8a65",
+                        weight: 4,
+                        opacity: 0.95,
+                        dashArray: "10 8"
+                    }
+                },
+                rectangle: {
+                    shapeOptions: {
+                        color: "#ff6b6b",
+                        weight: 2,
+                        fillColor: "#ff6b6b",
+                        fillOpacity: 0.14,
+                        dashArray: "6 6"
+                    }
+                }
+            }
+        });
+        map.addControl(drawControl);
+
+        map.on(L.Draw.Event.CREATED, event => {
+            const layer = event.layer;
+            styleBrowserZone(layer);
+            browserZoneLayer.addLayer(layer);
+            saveBrowserZones();
+        });
+
+        map.on(L.Draw.Event.EDITED, saveBrowserZones);
+        map.on(L.Draw.Event.DELETED, saveBrowserZones);
+
+        clearBrowserZonesButton.addEventListener("click", async () => {
+            browserZoneLayer.clearLayers();
+            await saveBrowserZones();
+            updateNoFlyCount();
+        });
+
+        renderRoutePanel();
+        addMarkers();
+        addNoFlyZones();
+        await loadBrowserZones();
+        addRoutes();
+        if (bounds.isValid()) {
+            map.fitBounds(bounds, { padding: [60, 60] });
+        }
+    }
+
+    init();
+</script>
+</body>
+</html>

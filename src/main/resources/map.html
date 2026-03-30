@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drone Command Map</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossorigin="">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+            crossorigin=""></script>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #07111f;
+            --panel: rgba(7, 17, 31, 0.88);
+            --panel-border: rgba(120, 225, 255, 0.2);
+            --accent: #4fd1ff;
+            --danger: #ff6b6b;
+            --success: #4ade80;
+            --text: #f3fbff;
+            --muted: #9ab3c3;
+            --shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body, #appShell, #map {
+            height: 100%;
+            width: 100%;
+            margin: 0;
+        }
+
+        body {
+            font-family: "Segoe UI", Arial, sans-serif;
+            background:
+                radial-gradient(circle at top left, rgba(0, 224, 255, 0.14), transparent 32%),
+                radial-gradient(circle at bottom right, rgba(79, 209, 255, 0.10), transparent 28%),
+                linear-gradient(145deg, #07111f 0%, #0b1b30 45%, #102540 100%);
+            color: var(--text);
+            overflow: hidden;
+        }
+
+        #appShell {
+            position: relative;
+        }
+
+        #map {
+            background: linear-gradient(160deg, #081322, #102744);
+        }
+
+        .leaflet-container {
+            background: #081322;
+            font-family: "Segoe UI", Arial, sans-serif;
+        }
+
+        .leaflet-control-attribution {
+            background: rgba(7, 17, 31, 0.72) !important;
+            color: #d7edf7 !important;
+            border-radius: 10px 0 0 0;
+            padding: 4px 8px !important;
+        }
+
+        .leaflet-control-zoom a {
+            background: rgba(7, 17, 31, 0.88) !important;
+            color: #f3fbff !important;
+            border-color: rgba(120, 225, 255, 0.2) !important;
+        }
+
+        .hud {
+            position: absolute;
+            z-index: 700;
+            backdrop-filter: blur(16px);
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 18px;
+            box-shadow: var(--shadow);
+        }
+
+        .hud-bottom {
+            left: 14px;
+            right: 14px;
+            bottom: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 12px 16px;
+        }
+
+        .metrics {
+            display: flex;
+            gap: 18px;
+            flex-wrap: wrap;
+        }
+
+        .metric-label {
+            display: block;
+            color: var(--muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .metric-value {
+            display: block;
+            margin-top: 2px;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        #statusText {
+            color: var(--muted);
+            font-size: 12px;
+            text-align: right;
+            max-width: 360px;
+        }
+
+        .map-label {
+            background: rgba(7, 17, 31, 0.88);
+            color: #f3fbff;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 999px;
+            padding: 8px 10px;
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.25);
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .marker-pin {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.92);
+            box-shadow: 0 0 16px rgba(0, 0, 0, 0.28);
+        }
+
+        .marker-base {
+            width: 18px;
+            height: 18px;
+            background: #ff6b6b;
+            box-shadow: 0 0 18px rgba(255, 107, 107, 0.6);
+        }
+
+        .marker-delivery {
+            background: #4fd1ff;
+            box-shadow: 0 0 16px rgba(79, 209, 255, 0.55);
+        }
+
+        @media (max-width: 720px) {
+            .hud-bottom {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            #statusText {
+                max-width: none;
+                text-align: left;
+            }
+        }
+    </style>
+</head>
+<body>
+<div id="appShell">
+    <div id="map"></div>
+
+    <div class="hud hud-bottom">
+        <div class="metrics">
+            <div>
+                <span class="metric-label">Locations</span>
+                <span class="metric-value" id="locationCount">0</span>
+            </div>
+            <div>
+                <span class="metric-label">Routes</span>
+                <span class="metric-value" id="routeCount">0</span>
+            </div>
+            <div>
+                <span class="metric-label">No-Fly Zones</span>
+                <span class="metric-value" id="nfzCount">0</span>
+            </div>
+        </div>
+        <div id="statusText">Loading map tiles...</div>
+    </div>
+</div>
+
+<script>
+    const DEFAULT_CENTER = [40.7128, -74.0060];
+
+    const map = L.map("map", {
+        zoomControl: true,
+        attributionControl: true,
+        fadeAnimation: false,
+        zoomAnimation: false,
+        markerZoomAnimation: false
+    }).setView(DEFAULT_CENTER, 13);
+
+    const tileLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+        subdomains: "abcd",
+        maxZoom: 20,
+        keepBuffer: 4,
+        updateWhenIdle: false,
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    }).addTo(map);
+
+    let markers = {};
+    let polylines = [];
+    let nfzLayers = [];
+    let edgeLabels = [];
+    let bounds = L.latLngBounds([]);
+    let hasExplicitViewport = false;
+    let routeRenderToken = 0;
+
+    function updateMetric(id, value) {
+        document.getElementById(id).textContent = String(value);
+    }
+
+    function setStatus(message) {
+        document.getElementById("statusText").textContent = message;
+    }
+
+    function ensureBounds() {
+        if (!bounds || !bounds.isValid()) {
+            bounds = L.latLngBounds([]);
+        }
+        return bounds;
+    }
+
+    function refreshViewport() {
+        if (!hasExplicitViewport && bounds.isValid()) {
+            map.fitBounds(bounds, { padding: [80, 80] });
+            forceFullRender();
+        }
+    }
+
+    function clearMarkers() {
+        Object.values(markers).forEach(marker => map.removeLayer(marker));
+        markers = {};
+        updateMetric("locationCount", 0);
+    }
+
+    function clearRoutes() {
+        routeRenderToken++;
+        polylines.forEach(polyline => map.removeLayer(polyline));
+        edgeLabels.forEach(label => map.removeLayer(label));
+        polylines = [];
+        edgeLabels = [];
+        updateMetric("routeCount", 0);
+    }
+
+    function clearNFZ() {
+        nfzLayers.forEach(layer => map.removeLayer(layer));
+        nfzLayers = [];
+        updateMetric("nfzCount", 0);
+    }
+
+    function clearMap() {
+        clearMarkers();
+        clearRoutes();
+        clearNFZ();
+        bounds = L.latLngBounds([]);
+        hasExplicitViewport = false;
+        setStatus("Map cleared.");
+    }
+
+    function addMarker(id, lat, lng, name, isBase) {
+        const icon = L.divIcon({
+            className: "custom-div-icon",
+            html: `
+                <div class="marker-pin ${isBase ? "marker-base" : "marker-delivery"}"></div>
+            `,
+            iconSize: [20, 20],
+            iconAnchor: [9, 9]
+        });
+
+        const marker = L.marker([lat, lng], { icon })
+            .addTo(map)
+            .bindTooltip(name, {
+                permanent: false,
+                direction: "top",
+                offset: [0, -12],
+                className: "map-label"
+            })
+            .bindPopup(name);
+
+        markers[id] = marker;
+        ensureBounds().extend([lat, lng]);
+        updateMetric("locationCount", Object.keys(markers).length);
+        refreshViewport();
+    }
+
+    function addPolyline(latLngs, color) {
+        const polyline = L.polyline(latLngs, {
+            color: color || "#4ade80",
+            weight: 4,
+            opacity: 0.92,
+            lineJoin: "round",
+            dashArray: "10 8"
+        }).addTo(map);
+
+        polylines.push(polyline);
+        latLngs.forEach(point => ensureBounds().extend(point));
+        updateMetric("routeCount", polylines.length);
+        setStatus("Showing " + polylines.length + " optimized route" + (polylines.length === 1 ? "" : "s") + ".");
+        refreshViewport();
+    }
+
+    function drawEdgeLabel(start, end, text) {
+        const lat = (start[0] + end[0]) / 2;
+        const lng = (start[1] + end[1]) / 2;
+        const icon = L.divIcon({
+            className: "",
+            html: `
+                <div style="
+                    padding: 4px 8px;
+                    border-radius: 999px;
+                    background: rgba(7,17,31,0.9);
+                    border: 1px solid rgba(255,255,255,0.08);
+                    color: #f3fbff;
+                    font-size: 11px;
+                    font-weight: 600;
+                    white-space: nowrap;
+                    box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+                ">${text}</div>
+            `,
+            iconSize: [10, 10],
+            iconAnchor: [5, 5]
+        });
+        const marker = L.marker([lat, lng], { icon, interactive: false }).addTo(map);
+        edgeLabels.push(marker);
+    }
+
+    async function drawPath(latLngsJson, color) {
+        const token = routeRenderToken;
+        const points = JSON.parse(latLngsJson);
+
+        if (!Array.isArray(points) || points.length < 2) {
+            return;
+        }
+
+        try {
+            const routedPath = await buildRoadRoute(points, token);
+            if (token !== routeRenderToken) {
+                return;
+            }
+            addPolyline(JSON.stringify(routedPath), color);
+        } catch (error) {
+            console.warn("Road routing failed, falling back to straight path.", error);
+            if (token !== routeRenderToken) {
+                return;
+            }
+            addPolyline(latLngsJson, color);
+        }
+    }
+
+    function drawEdgeDistances(latLngsJson, distancesJson) {
+        const points = JSON.parse(latLngsJson);
+        const distances = JSON.parse(distancesJson);
+        const count = Math.min(points.length - 1, distances.length);
+        for (let i = 0; i < count; i++) {
+            drawEdgeLabel(points[i], points[i + 1], distances[i]);
+        }
+    }
+
+    async function buildRoadRoute(points, token) {
+        const segments = [];
+
+        for (let i = 0; i < points.length - 1; i++) {
+            if (token !== routeRenderToken) {
+                return [];
+            }
+
+            const start = points[i];
+            const end = points[i + 1];
+            const url = "https://router.project-osrm.org/route/v1/driving/"
+                + start[1] + "," + start[0] + ";"
+                + end[1] + "," + end[0]
+                + "?overview=full&geometries=geojson";
+
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error("Routing request failed with status " + response.status);
+            }
+
+            const data = await response.json();
+            const coords = (((data || {}).routes || [])[0] || {}).geometry?.coordinates;
+            if (!coords || !coords.length) {
+                throw new Error("No route geometry returned.");
+            }
+
+            const segment = coords.map(coord => [coord[1], coord[0]]);
+            if (segments.length > 0) {
+                segment.shift();
+            }
+            segments.push(...segment);
+        }
+
+        return segments;
+    }
+
+    function drawNoFlyZone(minLng, minLat, maxLng, maxLat, color) {
+        const rectangle = L.rectangle([[minLat, minLng], [maxLat, maxLng]], {
+            color: color || "#ff6b6b",
+            weight: 2,
+            fillColor: color || "#ff6b6b",
+            fillOpacity: 0.18
+        }).addTo(map);
+
+        nfzLayers.push(rectangle);
+        ensureBounds().extend([minLat, minLng]);
+        ensureBounds().extend([maxLat, maxLng]);
+        updateMetric("nfzCount", nfzLayers.length);
+        refreshViewport();
+    }
+
+    function centerMap(lat, lng, zoom) {
+        hasExplicitViewport = true;
+        map.setView([lat, lng], zoom);
+        setStatus("Centered on depot.");
+        forceFullRender();
+    }
+
+    function fitAll() {
+        hasExplicitViewport = false;
+        refreshViewport();
+        setStatus("Viewport fit to all active overlays.");
+    }
+
+    function resizeMap() {
+        map.invalidateSize(true);
+        forceFullRender();
+    }
+
+    function forceFullRender() {
+        map.invalidateSize(true);
+        tileLayer.redraw();
+        setTimeout(() => {
+            map.invalidateSize(true);
+            tileLayer.redraw();
+        }, 120);
+        setTimeout(() => {
+            map.invalidateSize(true);
+            tileLayer.redraw();
+        }, 350);
+    }
+
+    window.addEventListener("load", function () {
+        setStatus("Map ready.");
+        setTimeout(function () {
+            resizeMap();
+        }, 250);
+        setTimeout(forceFullRender, 700);
+    });
+
+    window.addEventListener("resize", resizeMap);
+    map.whenReady(forceFullRender);
+    tileLayer.once("load", forceFullRender);
+</script>
+</body>
+</html>
