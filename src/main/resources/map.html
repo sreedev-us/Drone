@@ -24,10 +24,14 @@
             --shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
         }
 
-        * { box-sizing: border-box; }
+        * {
+            box-sizing: border-box;
+        }
 
         html, body, #appShell, #map {
-            height: 100%; width: 100%; margin: 0;
+            height: 100%;
+            width: 100%;
+            margin: 0;
         }
 
         body {
@@ -40,9 +44,13 @@
             overflow: hidden;
         }
 
-        #appShell { position: relative; }
+        #appShell {
+            position: relative;
+        }
 
-        #map { background: linear-gradient(160deg, #081322, #102744); }
+        #map {
+            background: linear-gradient(160deg, #081322, #102744);
+        }
 
         .leaflet-container {
             background: #081322;
@@ -73,7 +81,9 @@
         }
 
         .hud-bottom {
-            left: 14px; right: 14px; bottom: 14px;
+            left: 14px;
+            right: 14px;
+            bottom: 14px;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -81,7 +91,11 @@
             padding: 12px 16px;
         }
 
-        .metrics { display: flex; gap: 18px; flex-wrap: wrap; }
+        .metrics {
+            display: flex;
+            gap: 18px;
+            flex-wrap: wrap;
+        }
 
         .metric-label {
             display: block;
@@ -118,14 +132,16 @@
         }
 
         .marker-pin {
-            width: 16px; height: 16px;
+            width: 16px;
+            height: 16px;
             border-radius: 50%;
             border: 2px solid rgba(255, 255, 255, 0.92);
             box-shadow: 0 0 16px rgba(0, 0, 0, 0.28);
         }
 
         .marker-base {
-            width: 18px; height: 18px;
+            width: 18px;
+            height: 18px;
             background: #ff6b6b;
             box-shadow: 0 0 18px rgba(255, 107, 107, 0.6);
         }
@@ -136,8 +152,15 @@
         }
 
         @media (max-width: 720px) {
-            .hud-bottom { flex-direction: column; align-items: flex-start; }
-            #statusText { max-width: none; text-align: left; }
+            .hud-bottom {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            #statusText {
+                max-width: none;
+                text-align: left;
+            }
         }
     </style>
 </head>
@@ -165,13 +188,8 @@
 </div>
 
 <script>
-    // ─── Config ──────────────────────────────────────────────────────────────
     const DEFAULT_CENTER = [40.7128, -74.0060];
-    // Public OSRM demo server (OpenStreetMap data, no API key required).
-    // Road network: driving profile so edges follow actual streets.
-    const OSRM_BASE = "https://router.project-osrm.org/route/v1/driving/";
 
-    // ─── Map init ─────────────────────────────────────────────────────────────
     const map = L.map("map", {
         zoomControl: true,
         attributionControl: true,
@@ -180,72 +198,23 @@
         markerZoomAnimation: false
     }).setView(DEFAULT_CENTER, 13);
 
-    const tileLayer = L.tileLayer(
-        "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-        {
-            subdomains: "abcd",
-            maxZoom: 20,
-            keepBuffer: 4,
-            updateWhenIdle: false,
-            attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
-        }
-    ).addTo(map);
+    const tileLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+        subdomains: "abcd",
+        maxZoom: 20,
+        keepBuffer: 4,
+        updateWhenIdle: false,
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    }).addTo(map);
 
-    // ─── State ────────────────────────────────────────────────────────────────
-    let markers          = {};
-    let polylines        = [];
-    let graphEdgeLayers  = [];
-    let nfzLayers        = [];
-    let edgeLabels       = [];
-    let bounds           = L.latLngBounds([]);
+    let markers = {};
+    let polylines = [];
+    let graphEdgeLayers = [];
+    let nfzLayers = [];
+    let edgeLabels = [];
+    let bounds = L.latLngBounds([]);
     let hasExplicitViewport = false;
     let routeRenderToken = 0;
 
-    // ─── OSRM helpers ─────────────────────────────────────────────────────────
-    /**
-     * Fetch the road-snapped polyline between two lat/lng pairs via OSRM.
-     * Returns an array of [lat, lng] points, or null on failure.
-     */
-    async function fetchRoadPolyline(fromLat, fromLng, toLat, toLng) {
-        const url =
-            `${OSRM_BASE}${fromLng},${fromLat};${toLng},${toLat}` +
-            `?overview=full&geometries=geojson`;
-        try {
-            const res = await fetch(url);
-            if (!res.ok) return null;
-            const data = await res.json();
-            if (!data.routes || !data.routes[0]) return null;
-            // GeoJSON geometry: coordinates are [lng, lat] — swap to [lat, lng] for Leaflet.
-            return data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-        } catch (e) {
-            return null;
-        }
-    }
-
-    /**
-     * Chain multiple waypoints through OSRM (produces one continuous road path).
-     * waypoints: [[lat, lng], [lat, lng], ...]
-     * Returns array of [lat, lng] for the full Leaflet polyline.
-     */
-    async function fetchRoadRoute(waypoints) {
-        if (waypoints.length < 2) return null;
-        const coords = waypoints.map(w => `${w[1]},${w[0]}`).join(";");
-        const url = `${OSRM_BASE}${coords}?overview=full&geometries=geojson`;
-        try {
-            const res = await fetch(url);
-            if (!res.ok) return null;
-            const data = await res.json();
-            if (!data.routes || !data.routes[0]) return null;
-            return data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-        } catch (e) {
-            return null;
-        }
-    }
-
-    // Small delay helper to avoid flooding the free OSRM server.
-    function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-    // ─── Utility ──────────────────────────────────────────────────────────────
     function updateMetric(id, value) {
         document.getElementById(id).textContent = String(value);
     }
@@ -255,7 +224,9 @@
     }
 
     function ensureBounds() {
-        if (!bounds || !bounds.isValid()) bounds = L.latLngBounds([]);
+        if (!bounds || !bounds.isValid()) {
+            bounds = L.latLngBounds([]);
+        }
         return bounds;
     }
 
@@ -266,17 +237,48 @@
         }
     }
 
-    // ─── Markers ─────────────────────────────────────────────────────────────
     function clearMarkers() {
-        Object.values(markers).forEach(m => map.removeLayer(m));
+        Object.values(markers).forEach(marker => map.removeLayer(marker));
         markers = {};
         updateMetric("locationCount", 0);
+    }
+
+    function clearRoutes() {
+        routeRenderToken++;
+        polylines.forEach(polyline => map.removeLayer(polyline));
+        edgeLabels.forEach(label => map.removeLayer(label));
+        polylines = [];
+        edgeLabels = [];
+        updateMetric("routeCount", 0);
+    }
+
+    function clearGraphEdges() {
+        graphEdgeLayers.forEach(layer => map.removeLayer(layer));
+        graphEdgeLayers = [];
+    }
+
+    function clearNFZ() {
+        nfzLayers.forEach(layer => map.removeLayer(layer));
+        nfzLayers = [];
+        updateMetric("nfzCount", 0);
+    }
+
+    function clearMap() {
+        clearMarkers();
+        clearRoutes();
+        clearGraphEdges();
+        clearNFZ();
+        bounds = L.latLngBounds([]);
+        hasExplicitViewport = false;
+        setStatus("Map cleared.");
     }
 
     function addMarker(id, lat, lng, name, isBase) {
         const icon = L.divIcon({
             className: "custom-div-icon",
-            html: `<div class="marker-pin ${isBase ? "marker-base" : "marker-delivery"}"></div>`,
+            html: `
+                <div class="marker-pin ${isBase ? "marker-base" : "marker-delivery"}"></div>
+            `,
             iconSize: [20, 20],
             iconAnchor: [9, 9]
         });
@@ -297,16 +299,6 @@
         refreshViewport();
     }
 
-    // ─── Routes ──────────────────────────────────────────────────────────────
-    function clearRoutes() {
-        routeRenderToken++;
-        polylines.forEach(p => map.removeLayer(p));
-        edgeLabels.forEach(l => map.removeLayer(l));
-        polylines = [];
-        edgeLabels = [];
-        updateMetric("routeCount", 0);
-    }
-
     function addPolyline(latLngs, color) {
         const polyline = L.polyline(latLngs, {
             color: color || "#4ade80",
@@ -317,96 +309,23 @@
         }).addTo(map);
 
         polylines.push(polyline);
-        latLngs.forEach(pt => ensureBounds().extend(pt));
+        latLngs.forEach(point => ensureBounds().extend(point));
         updateMetric("routeCount", polylines.length);
-        setStatus("Showing " + polylines.length + " optimised route" + (polylines.length === 1 ? "" : "s") + ".");
+        setStatus("Showing " + polylines.length + " optimized route" + (polylines.length === 1 ? "" : "s") + ".");
         refreshViewport();
     }
 
-    /**
-     * Called by Java: draw a drone route that follows real roads.
-     * stopsJson: JSON array of [lat, lng] pairs — the ordered delivery stops.
-     */
-    async function drawRoadPath(stopsJson, color) {
-        const token = ++routeRenderToken;
-        const stops = JSON.parse(stopsJson);
-        if (!Array.isArray(stops) || stops.length < 2) return;
-
-        setStatus("Fetching road route from OSRM…");
-        const roadPoints = await fetchRoadRoute(stops);
-
-        if (routeRenderToken !== token) return; // superseded by a newer call
-        if (roadPoints && roadPoints.length >= 2) {
-            addPolyline(roadPoints, color);
-        } else {
-            // Fallback: straight lines between stops if OSRM fails.
-            addPolyline(stops, color);
-        }
-    }
-
-    // Legacy fallback used by old Java callers (kept for compatibility).
-    function drawPath(latLngsJson, color) {
-        const points = JSON.parse(latLngsJson);
-        if (!Array.isArray(points) || points.length < 2) return;
-        addPolyline(points, color);
-    }
-
-    // ─── Graph edges ─────────────────────────────────────────────────────────
-    function clearGraphEdges() {
-        graphEdgeLayers.forEach(l => map.removeLayer(l));
-        graphEdgeLayers = [];
-    }
-
-    /**
-     * Called by Java: receives an array of [fromLat, fromLng, toLat, toLng]
-     * endpoint tuples and fetches real road geometry for each edge from OSRM.
-     */
-    async function drawGraphEdgeEndpoints(endpointsJson) {
-        clearGraphEdges();
-        const token = ++routeRenderToken;
-        const endpoints = JSON.parse(endpointsJson);
-        if (!Array.isArray(endpoints) || endpoints.length === 0) return;
-
-        setStatus("Loading road graph edges… (0/" + endpoints.length + ")");
-
-        for (let i = 0; i < endpoints.length; i++) {
-            if (routeRenderToken !== token) return; // aborted by a newer call
-
-            const [fromLat, fromLng, toLat, toLng] = endpoints[i];
-            const roadPts = await fetchRoadPolyline(fromLat, fromLng, toLat, toLng);
-
-            const latLngs = (roadPts && roadPts.length >= 2)
-                ? roadPts
-                : [[fromLat, fromLng], [toLat, toLng]]; // straight-line fallback
-
-            const layer = L.polyline(latLngs, {
-                color: "#8ab4c8",
-                weight: 2,
-                opacity: 0.40,
-                lineJoin: "round",
-                dashArray: "4 8"
-            }).addTo(map);
-
-            graphEdgeLayers.push(layer);
-            latLngs.forEach(pt => ensureBounds().extend(pt));
-
-            // Throttle: small pause every 5 edges to respect the OSRM rate limit.
-            if ((i + 1) % 5 === 0) await delay(120);
-            setStatus("Loading road graph edges… (" + (i + 1) + "/" + endpoints.length + ")");
-        }
-
-        setStatus("Road graph ready — " + endpoints.length + " road edges drawn.");
-        refreshViewport();
-    }
-
-    // Legacy straight-line edge renderer (kept for backward compatibility).
     function drawGraphEdges(graphEdgesJson) {
         clearGraphEdges();
         const graphEdges = JSON.parse(graphEdgesJson);
-        if (!Array.isArray(graphEdges)) return;
+        if (!Array.isArray(graphEdges)) {
+            return;
+        }
 
         graphEdges.forEach(edge => {
-            if (!Array.isArray(edge) || edge.length < 2) return;
+            if (!Array.isArray(edge) || edge.length < 2) {
+                return;
+            }
             const layer = L.polyline(edge, {
                 color: "#8ab4c8",
                 weight: 2,
@@ -415,28 +334,29 @@
                 dashArray: "4 8"
             }).addTo(map);
             graphEdgeLayers.push(layer);
-            edge.forEach(pt => ensureBounds().extend(pt));
+            edge.forEach(point => ensureBounds().extend(point));
         });
         refreshViewport();
     }
 
-    // ─── Edge distance labels ─────────────────────────────────────────────────
     function drawEdgeLabel(start, end, text) {
         const lat = (start[0] + end[0]) / 2;
         const lng = (start[1] + end[1]) / 2;
         const icon = L.divIcon({
             className: "",
-            html: `<div style="
-                padding: 4px 8px;
-                border-radius: 999px;
-                background: rgba(7,17,31,0.9);
-                border: 1px solid rgba(255,255,255,0.08);
-                color: #f3fbff;
-                font-size: 11px;
-                font-weight: 600;
-                white-space: nowrap;
-                box-shadow: 0 8px 24px rgba(0,0,0,0.22);
-            ">${text}</div>`,
+            html: `
+                <div style="
+                    padding: 4px 8px;
+                    border-radius: 999px;
+                    background: rgba(7,17,31,0.9);
+                    border: 1px solid rgba(255,255,255,0.08);
+                    color: #f3fbff;
+                    font-size: 11px;
+                    font-weight: 600;
+                    white-space: nowrap;
+                    box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+                ">${text}</div>
+            `,
             iconSize: [10, 10],
             iconAnchor: [5, 5]
         });
@@ -444,8 +364,16 @@
         edgeLabels.push(marker);
     }
 
+    function drawPath(latLngsJson, color) {
+        const points = JSON.parse(latLngsJson);
+        if (!Array.isArray(points) || points.length < 2) {
+            return;
+        }
+        addPolyline(points, color);
+    }
+
     function drawEdgeDistances(latLngsJson, distancesJson) {
-        const points    = JSON.parse(latLngsJson);
+        const points = JSON.parse(latLngsJson);
         const distances = JSON.parse(distancesJson);
         const count = Math.min(points.length - 1, distances.length);
         for (let i = 0; i < count; i++) {
@@ -453,35 +381,19 @@
         }
     }
 
-    // ─── No-fly zones ─────────────────────────────────────────────────────────
-    function clearNFZ() {
-        nfzLayers.forEach(l => map.removeLayer(l));
-        nfzLayers = [];
-        updateMetric("nfzCount", 0);
-    }
-
     function drawNoFlyZone(minLng, minLat, maxLng, maxLat, color) {
-        const rectangle = L.rectangle(
-            [[minLat, minLng], [maxLat, maxLng]],
-            { color: color || "#ff6b6b", weight: 2, fillColor: color || "#ff6b6b", fillOpacity: 0.18 }
-        ).addTo(map);
+        const rectangle = L.rectangle([[minLat, minLng], [maxLat, maxLng]], {
+            color: color || "#ff6b6b",
+            weight: 2,
+            fillColor: color || "#ff6b6b",
+            fillOpacity: 0.18
+        }).addTo(map);
 
         nfzLayers.push(rectangle);
         ensureBounds().extend([minLat, minLng]);
         ensureBounds().extend([maxLat, maxLng]);
         updateMetric("nfzCount", nfzLayers.length);
         refreshViewport();
-    }
-
-    // ─── Map control ──────────────────────────────────────────────────────────
-    function clearMap() {
-        clearMarkers();
-        clearRoutes();
-        clearGraphEdges();
-        clearNFZ();
-        bounds = L.latLngBounds([]);
-        hasExplicitViewport = false;
-        setStatus("Map cleared.");
     }
 
     function centerMap(lat, lng, zoom) {
@@ -505,14 +417,21 @@
     function forceFullRender() {
         map.invalidateSize(true);
         tileLayer.redraw();
-        setTimeout(() => { map.invalidateSize(true); tileLayer.redraw(); }, 120);
-        setTimeout(() => { map.invalidateSize(true); tileLayer.redraw(); }, 350);
+        setTimeout(() => {
+            map.invalidateSize(true);
+            tileLayer.redraw();
+        }, 120);
+        setTimeout(() => {
+            map.invalidateSize(true);
+            tileLayer.redraw();
+        }, 350);
     }
 
-    // ─── Startup ──────────────────────────────────────────────────────────────
     window.addEventListener("load", function () {
-        setStatus("Map ready. Road edges and routes will follow real streets via OSRM.");
-        setTimeout(resizeMap, 250);
+        setStatus("Map ready.");
+        setTimeout(function () {
+            resizeMap();
+        }, 250);
         setTimeout(forceFullRender, 700);
     });
 

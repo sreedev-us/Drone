@@ -151,15 +151,6 @@ public class DistanceCalculator {
         return graphContext == null ? List.of() : graphContext.getAllEdgePaths();
     }
 
-    /**
-     * Returns a list of [fromLat, fromLng, toLat, toLng] tuples, one per directed
-     * edge in the current graph. Used by the JS map to fetch real road geometry
-     * from OSRM rather than rendering pre-computed L-shaped paths.
-     */
-    public static List<double[]> getGraphEdgeEndpoints() {
-        return graphContext == null ? List.of() : graphContext.getAllEdgeEndpoints();
-    }
-
     private static List<double[]> buildDirectPath(Location a, Location b) {
         List<double[]> path = new ArrayList<>();
         path.add(point(a.getLat(), a.getLng()));
@@ -552,31 +543,6 @@ public class DistanceCalculator {
                 }
             }
             return edges;
-        }
-
-        /**
-         * Returns [fromLat, fromLng, toLat, toLng] for every direct edge stored
-         * in the graph. Duplicate (bidirectional) entries are deduplicated by
-         * keeping only edges where fromId < toId so the JS map draws each road
-         * segment once.
-         */
-        private List<double[]> getAllEdgeEndpoints() {
-            List<double[]> endpoints = new ArrayList<>();
-            Set<Long> seen = new HashSet<>();
-            for (Map.Entry<Long, List<double[]>> entry : edgePaths.entrySet()) {
-                long key = entry.getKey();
-                int from = (int) (key >> 32);
-                int to   = (int) (key & 0xffffffffL);
-                long canonical = from < to ? key : edgeKey(to, from);
-                if (!seen.add(canonical)) continue;
-                List<double[]> path = entry.getValue();
-                if (path.size() < 2) continue;
-                Location fLoc = locationsById.get(from);
-                Location tLoc = locationsById.get(to);
-                if (fLoc == null || tLoc == null) continue;
-                endpoints.add(new double[]{fLoc.getLat(), fLoc.getLng(), tLoc.getLat(), tLoc.getLng()});
-            }
-            return endpoints;
         }
     }
 }

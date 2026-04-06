@@ -86,17 +86,14 @@ public class MapPanel extends StackPane {
         for (int i = 0; i < route.getDronePaths().size(); i++) {
             Route.DronePath dronePath = route.getDronePaths().get(i);
             String color = ROUTE_COLORS[i % ROUTE_COLORS.length];
-
-            // Send only the ordered stop coordinates – JS will fetch real road
-            // geometry from OSRM and render it as a snapped polyline.
-            List<double[]> stops = dronePath.getPath().stream()
-                    .map(loc -> new double[]{loc.getLat(), loc.getLng()})
-                    .collect(Collectors.toList());
+            List<double[]> coords = buildRenderedPath(dronePath.getPath());
             List<String> edgeDistances = buildEdgeDistances(dronePath.getPath());
 
-            executeScript("drawRoadPath(" + toJsString(gson.toJson(stops)) + ", " + toJsString(color) + ");");
-            executeScript("drawEdgeDistances(" + toJsString(gson.toJson(stops)) + ", "
-                    + toJsString(gson.toJson(edgeDistances)) + ");");
+            String coordsJson = gson.toJson(coords);
+            executeScript("drawPath(" + toJsString(coordsJson) + ", " + toJsString(color) + ");");
+            executeScript("drawEdgeDistances(" + toJsString(gson.toJson(dronePath.getPath().stream()
+                    .map(location -> new double[]{location.getLat(), location.getLng()})
+                    .collect(Collectors.toList()))) + ", " + toJsString(gson.toJson(edgeDistances)) + ");");
         }
 
         executeScript("fitAll();");
@@ -113,9 +110,7 @@ public class MapPanel extends StackPane {
         if (!isMapLoaded) {
             return;
         }
-        // Send raw endpoint pairs [fromLat, fromLng, toLat, toLng] so the JS side
-        // can fetch real road geometry from OSRM rather than rendering L-shaped paths.
-        executeScript("drawGraphEdgeEndpoints(" + toJsString(gson.toJson(DistanceCalculator.getGraphEdgeEndpoints())) + ");");
+        executeScript("drawGraphEdges(" + toJsString(gson.toJson(DistanceCalculator.getGraphEdges())) + ");");
     }
 
     public void resetView() {
@@ -210,8 +205,23 @@ public class MapPanel extends StackPane {
                 .collect(Collectors.toList());
     }
 
-
-
+    private List<double[]> buildRenderedPath(List<Location> stops) {
+        List<double[]> fullPath = new java.util.ArrayList<>();
+        for (int i = 0; i < Math.max(0, stops.size() - 1); i++) {
+            List<double[]> segment = DistanceCalculator.buildPath(stops.get(i), stops.get(i + 1), noFlyZones);
+            if (segment.isEmpty()) {
+                continue;
+            }
+            List<double[]> normalized = new java.util.ArrayList<>(segment);
+            if (!fullPath.isEmpty()) {
+                normalized.remove(0);
+            }
+            fullPath.addAll(normalized);
+        }
+        return fullPath.isEmpty()
+                ? stops.stream().map(location -> new double[]{location.getLat(), location.getLng()}).collect(Collectors.toList())
+                : fullPath;
+    }
 
     private String toJsString(String value) {
         return gson.toJson(value == null ? "" : value);
