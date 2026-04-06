@@ -319,6 +319,22 @@
         });
     }
 
+    function addGraphEdges() {
+        (state.graphEdges || []).forEach(edge => {
+            if (!edge || edge.length < 2) {
+                return;
+            }
+            L.polyline(edge, {
+                color: "#8ab4c8",
+                weight: 2,
+                opacity: 0.28,
+                lineJoin: "round",
+                dashArray: "4 8"
+            }).addTo(map);
+            edge.forEach(point => bounds.extend(point));
+        });
+    }
+
     function updateNoFlyCount() {
         nfzCount.textContent = String((state.noFlyZones || []).length + browserZoneLayer.getLayers().length);
     }
@@ -509,6 +525,7 @@
 
         renderRoutePanel();
         addMarkers();
+        addGraphEdges();
         addNoFlyZones();
         await loadBrowserZones();
         addRoutes();

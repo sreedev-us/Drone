@@ -1,6 +1,7 @@
 package com.drone.model;
 
 import com.drone.utils.DistanceCalculator;
+import com.drone.utils.RouteScorer;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -77,7 +78,19 @@ public class Route {
             sb.append("Drone ").append(dp.droneId + 1)
                     .append(" | Total Distance: ")
                     .append(String.format("%.2f km", dp.distance))
+                    .append(" | Deliveries: ")
+                    .append(Math.max(0, dp.path.size() - 2))
                     .append("\n");
+            if (dp.distance > RouteScorer.getBatteryLimitKm()) {
+                sb.append("    Battery warning: exceeds ")
+                        .append(String.format("%.1f km", RouteScorer.getBatteryLimitKm()))
+                        .append("\n");
+            }
+            if (Math.max(0, dp.path.size() - 2) > RouteScorer.getMaxDeliveriesPerDrone()) {
+                sb.append("    Capacity warning: exceeds ")
+                        .append(RouteScorer.getMaxDeliveriesPerDrone())
+                        .append(" deliveries\n");
+            }
 
             for (int i = 0; i < dp.path.size(); i++) {
                 Location current = dp.path.get(i);
@@ -90,7 +103,7 @@ public class Route {
 
                 if (i < dp.path.size() - 1) {
                     Location next = dp.path.get(i + 1);
-                    double edgeDistance = DistanceCalculator.haversine(current, next);
+                    double edgeDistance = DistanceCalculator.pathDistance(DistanceCalculator.buildPath(current, next, null));
                     sb.append(" | Edge to next: ")
                             .append(String.format("%.2f km", edgeDistance));
                 }

@@ -10,6 +10,7 @@ import com.drone.model.Route;
 import com.drone.utils.BrowserMapExporter;
 import com.drone.utils.BrowserZoneBridge;
 import com.drone.utils.DistanceCalculator;
+import com.drone.utils.RouteScorer;
 import com.drone.utils.MatrixGenerator;
 import javafx.animation.FadeTransition;
 import javafx.application.Platform;
@@ -104,6 +105,8 @@ public class MainUI {
     private Label droneCountMetric;
     private Label nfzMetric;
     private Label solverStatusLabel;
+    private Label bestAlgorithmLabel;
+    private Label improvementLabel;
     private VBox comparisonRows;
     private BarChart<String, Number> distChart;
     private BarChart<String, Number> timeChart;
@@ -444,6 +447,9 @@ public class MainUI {
                         "-fx-border-color: " + BORDER_SOFT + ";" +
                         "-fx-border-radius: 18;"
         );
+        bestAlgorithmLabel = createLabel("Best algorithm: --", 12, FontWeight.BOLD, TEXT_PRIMARY);
+        improvementLabel = createLabel("Improvement vs runner-up: --", 12, FontWeight.NORMAL, TEXT_SECONDARY);
+        comparisonRows.getChildren().addAll(bestAlgorithmLabel, improvementLabel);
 
         content.getChildren().addAll(
                 createSectionHeader("Fleet Assignments", ACCENT_GREEN),
@@ -458,8 +464,8 @@ public class MainUI {
     private VBox buildChartsTab() {
         VBox content = new VBox(18);
         content.setPadding(new Insets(22));
-        distChart = createChart("Fleet Distance by Solver", "km");
-        timeChart = createChart("Execution Time by Solver", "ms");
+        distChart = createChart("Graph 1: Fleet Distance by Solver", "km");
+        timeChart = createChart("Graph 2: Execution Time by Solver", "ms");
         VBox.setVgrow(distChart, Priority.ALWAYS);
         VBox.setVgrow(timeChart, Priority.ALWAYS);
         content.getChildren().addAll(distChart, timeChart);
@@ -552,6 +558,7 @@ public class MainUI {
             currentBestRoute = null;
             DistanceCalculator.clearCache();
             map.setLocations(locations, getAllNoFlyZones());
+            map.drawGraphEdges();
             map.setNoFlyZones(getAllNoFlyZones());
             updateMissionMetrics();
             updateBrowserMap(false);
@@ -598,6 +605,7 @@ public class MainUI {
         currentBestRoute = null;
         DistanceCalculator.clearCache();
         map.setLocations(locations, getAllNoFlyZones());
+        map.drawGraphEdges();
         updateBrowserMap(false);
         routeArea.setText("Delivery settings updated. Re-run dispatch to apply the edited priorities and time windows.");
         reportArea.appendText("[" + LocalTime.now() + "] Updated delivery priorities and time windows.\n");
@@ -641,15 +649,20 @@ public class MainUI {
         progressIndicator.setVisible(true);
         solverStatusLabel.setText("Preparing solver run...");
 
-        distMatrix = DistanceCalculator.buildMatrix(locations, getAllNoFlyZones());
         int fleetSize = fleetSpinner.getValue();
+        List<Location> runLocations = new ArrayList<>(locations);
+        List<NoFlyZone> runZones = getAllNoFlyZones();
 
         new Thread(() -> {
             try {
+                Platform.runLater(() -> solverStatusLabel.setText("Building road graph..."));
+                distMatrix = DistanceCalculator.buildMatrix(runLocations, runZones);
+                Platform.runLater(map::drawGraphEdges);
+
                 List<Route> results = new ArrayList<>();
                 for (TSPAlgorithm algorithm : algorithms) {
                     Platform.runLater(() -> solverStatusLabel.setText("Running " + algorithm.getName() + "..."));
-                    results.add(algorithm.solve(distMatrix, locations, fleetSize));
+                    results.add(algorithm.solve(distMatrix, runLocations, fleetSize));
                 }
 
                 Platform.runLater(() -> {
@@ -701,6 +714,17 @@ public class MainUI {
         XYChart.Series<String, Number> timeSeries = new XYChart.Series<>();
 
         comparisonRows.getChildren().clear();
+        comparisonRows.getChildren().addAll(
+                createLabel("Best algorithm: " + best.getAlgorithmName(), 12, FontWeight.BOLD, TEXT_PRIMARY),
+                createLabel(buildImprovementText(results), 12, FontWeight.NORMAL, TEXT_SECONDARY),
+                createLabel(
+                        String.format("Battery limit: %.1f km | Capacity: %d deliveries/drone",
+                                RouteScorer.getBatteryLimitKm(), RouteScorer.getMaxDeliveriesPerDrone()),
+                        12,
+                        FontWeight.NORMAL,
+                        TEXT_SECONDARY
+                )
+        );
         for (Route route : results) {
             String shortName = route.getAlgorithmName().split(" ")[0];
             distanceSeries.getData().add(new XYChart.Data<>(shortName, route.getTotalDistance()));
@@ -732,7 +756,9 @@ public class MainUI {
     private void onGenerate() {
         locations = MatrixGenerator.generateLocations(nodeSpinner.getValue());
         currentBestRoute = null;
+        DistanceCalculator.clearCache();
         map.setLocations(locations, getAllNoFlyZones());
+        map.drawGraphEdges();
         updateMissionMetrics();
         updateBrowserMap(false);
         routeArea.setText("Locations generated. Run a dispatch to compare solver output.");
@@ -962,6 +988,23 @@ public class MainUI {
         );
         chart.setAnimated(false);
         return chart;
+    }
+
+    private String buildImprovementText(List<Route> results) {
+        if (results.size() < 2) {
+            return "Improvement vs runner-up: --";
+        }
+
+        List<Route> ranked = new ArrayList<>(results);
+        ranked.sort((left, right) -> Double.compare(left.getObjectiveScore(), right.getObjectiveScore()));
+        Route best = ranked.get(0);
+        Route runnerUp = ranked.get(1);
+        if (runnerUp.getObjectiveScore() <= 0 || runnerUp.getObjectiveScore() >= DistanceCalculator.INF) {
+            return "Improvement vs runner-up: --";
+        }
+
+        double improvement = ((runnerUp.getObjectiveScore() - best.getObjectiveScore()) / runnerUp.getObjectiveScore()) * 100.0;
+        return String.format("Improvement vs runner-up: %.1f%%", Math.max(0.0, improvement));
     }
 
     private FileChooser createFileChooser(String title, String description, String pattern) {

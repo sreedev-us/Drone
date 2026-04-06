@@ -53,6 +53,7 @@ public class MapPanel extends StackPane {
                 if (noFlyZones != null) {
                     drawNoFlyZones();
                 }
+                drawGraphEdges();
             }
         });
 
@@ -67,6 +68,7 @@ public class MapPanel extends StackPane {
         if (isMapLoaded) {
             updateMarkers();
             drawNoFlyZones();
+            drawGraphEdges();
         }
     }
 
@@ -84,14 +86,17 @@ public class MapPanel extends StackPane {
         for (int i = 0; i < route.getDronePaths().size(); i++) {
             Route.DronePath dronePath = route.getDronePaths().get(i);
             String color = ROUTE_COLORS[i % ROUTE_COLORS.length];
-            List<double[]> coords = dronePath.getPath().stream()
-                    .map(location -> new double[]{location.getLat(), location.getLng()})
+
+            // Send only the ordered stop coordinates – JS will fetch real road
+            // geometry from OSRM and render it as a snapped polyline.
+            List<double[]> stops = dronePath.getPath().stream()
+                    .map(loc -> new double[]{loc.getLat(), loc.getLng()})
                     .collect(Collectors.toList());
             List<String> edgeDistances = buildEdgeDistances(dronePath.getPath());
 
-            String coordsJson = gson.toJson(coords);
-            executeScript("drawPath(" + toJsString(coordsJson) + ", " + toJsString(color) + ");");
-            executeScript("drawEdgeDistances(" + toJsString(coordsJson) + ", " + toJsString(gson.toJson(edgeDistances)) + ");");
+            executeScript("drawRoadPath(" + toJsString(gson.toJson(stops)) + ", " + toJsString(color) + ");");
+            executeScript("drawEdgeDistances(" + toJsString(gson.toJson(stops)) + ", "
+                    + toJsString(gson.toJson(edgeDistances)) + ");");
         }
 
         executeScript("fitAll();");
@@ -102,6 +107,15 @@ public class MapPanel extends StackPane {
         if (isMapLoaded) {
             drawNoFlyZones();
         }
+    }
+
+    public void drawGraphEdges() {
+        if (!isMapLoaded) {
+            return;
+        }
+        // Send raw endpoint pairs [fromLat, fromLng, toLat, toLng] so the JS side
+        // can fetch real road geometry from OSRM rather than rendering L-shaped paths.
+        executeScript("drawGraphEdgeEndpoints(" + toJsString(gson.toJson(DistanceCalculator.getGraphEdgeEndpoints())) + ");");
     }
 
     public void resetView() {
@@ -191,9 +205,13 @@ public class MapPanel extends StackPane {
 
     private List<String> buildEdgeDistances(List<Location> path) {
         return java.util.stream.IntStream.range(0, Math.max(0, path.size() - 1))
-                .mapToObj(i -> String.format("%.2f km", DistanceCalculator.haversine(path.get(i), path.get(i + 1))))
+                .mapToObj(i -> String.format("%.2f km",
+                        DistanceCalculator.pathDistance(DistanceCalculator.buildPath(path.get(i), path.get(i + 1), null))))
                 .collect(Collectors.toList());
     }
+
+
+
 
     private String toJsString(String value) {
         return gson.toJson(value == null ? "" : value);

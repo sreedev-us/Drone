@@ -52,6 +52,9 @@ public final class BrowserMapExporter {
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("locations", locations.stream().map(BrowserMapExporter::toLocationMap).collect(Collectors.toList()));
         state.put("noFlyZones", noFlyZones.stream().map(BrowserMapExporter::toZoneMap).collect(Collectors.toList()));
+        state.put("graphEdges", DistanceCalculator.getGraphEdges().stream()
+                .map(edge -> edge.stream().map(point -> List.of(point[0], point[1])).collect(Collectors.toList()))
+                .collect(Collectors.toList()));
         state.put("bridgeUrl", BrowserZoneBridge.getInstance().getBaseUrl());
         state.put("routes", route == null
                 ? List.of()
